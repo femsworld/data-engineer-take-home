@@ -71,12 +71,24 @@ def run_gold(con):
         ORDER BY signup_week, week_number
     """)
 
-    # 6. cac_by_channel
+  # 6. cac_by_channel
     con.execute(f"""
         CREATE OR REPLACE TABLE cac_by_channel AS 
-        SELECT m.channel, SUM(m.spend) / NULLIF(COUNT(DISTINCT e.user_id), 0) as cac 
+        WITH channel_signups AS (
+            SELECT 
+                event_ts::DATE as signup_date, 
+                COUNT(DISTINCT user_id) as signup_count
+            FROM ({human_events})
+            WHERE event_type = 'signup'
+            GROUP BY 1
+        )
+        SELECT 
+            m.channel, 
+            -- Calculate total spend and total signups for the channel
+            -- If signup_count is NULL (due to left join), CAC becomes NULL.
+            SUM(m.spend) / NULLIF(SUM(s.signup_count), 0) as cac 
         FROM silver_marketing m 
-        LEFT JOIN ({human_events}) e ON m.date = e.event_ts::DATE AND e.event_type = 'signup' 
+        LEFT JOIN channel_signups s ON m.date = s.signup_date
         GROUP BY 1
         ORDER BY cac DESC
     """)
