@@ -1,143 +1,115 @@
-# Data Engineering Take‑Home (Lakehouse Mini Project)
+# Audicin Data Engineering Take-Home Task
 
-This repository contains a synthetic dataset and a set of requirements to assess the following **data engineering** skills:
-data modeling, incremental processing, idempotency, messy-data handling, and clear architectural reasoning.
+## 1. Overview
+This repository implements a high-performance Medallion Lakehouse architecture (Bronze, Silver, Gold) designed to process Audicin's wearable, subscription, and marketing data.
 
-## What you get
+The pipeline is built to be idempotent, fault-tolerant, and capable of detecting complex data "traps" like non-numeric amount fields ("ten"), duplicate event IDs, and non-human bot activity.
 
-### Dataset (in `./data`)
-- `events.ndjson` — raw application events (NDJSON). **Messy on purpose**.
-- `subscriptions.json` — subscription records (a JSON array; not NDJSON).
-- `marketing_spend.csv` — daily marketing spend by channel.
-
-### Key intentional “traps” (read this carefully)
-The data includes issues you should handle explicitly in your design:
-- **Duplicate events** (same `event_id` repeated)
-- **Conflicting duplicates** (same `event_id`, different payload such as `amount`/`currency`)
-- **Out‑of‑order events** (file order is not time order)
-- **Late/early timestamps** (including refunds that appear earlier than purchase timestamps)
-- **Schema evolution** (`schema_version` 1 and 2)
-- **Inconsistent timestamp formats** (ISO Z, ISO with offset, and some `YYYY-MM-DD HH:MM:SS`)
-- **Corrupted rows** (invalid JSON lines in the NDJSON)
-- **Missing fields / nulls** (e.g., `user_id` missing/null)
-- **Marketing spend gaps** (missing days) + **duplicate rows** + **negative spend** row
-- **Subscriptions edge cases**: overlaps, reactivations, and a **duplicate `subscription_id`**
-
-Your solution should be robust to these issues and explain the chosen behavior.
-
-## Business questions
-
-Build “gold” analytics tables that can answer:
-
-1. **DAU**: daily active users
-2. **Revenue**: gross and net (refund‑adjusted) daily revenue
-3. **MRR**: monthly recurring revenue (subscription‑based; *not* the same as revenue)
-4. **Weekly cohort retention**: based on signup week
-5. **CAC**: customer acquisition cost (paid conversions / spend)
-6. **LTV**: per user lifetime value (refund‑adjusted)
-7. **LTV:CAC** ratio
-
-## Expected deliverables
-
-### 1) Architecture & reasoning (required)
-Provide a short document (in your README or separate `DESIGN.md`) describing:
-- Bronze/Silver/Gold layers (or equivalent) and why
-- Storage format choices (e.g., Parquet/Iceberg/Delta; or DuckDB/SQLite; or warehouse tables)
-- Partitioning/clustering strategy
-- Incremental strategy (how you avoid full refreshes)
-- Idempotency strategy (how re‑runs and partial failures behave)
-- How you handle schema evolution + timestamp normalization
-- How you handle corrupted rows (quarantine strategy)
-- Backfill strategy (how you rebuild historical data correctly)
-
-### 2) Implementation (required)
-Implement a runnable pipeline that produces gold tables/views:
-- `daily_active_users`
-- `daily_revenue_gross`
-- `daily_revenue_net`
-- `mrr_daily` (or `mrr_monthly` — explain your choice)
-- `weekly_cohort_retention`
-- `cac_by_channel` (or overall CAC — explain)
-- `ltv_per_user`
-- `ltv_cac_ratio`
-
-You may use any stack you prefer (examples):
-- Python + DuckDB + Parquet
-- Spark + Iceberg/Delta/Hudi
-- dbt + BigQuery/Snowflake/Postgres
-- SQL + local warehouse
-
-> **Timebox**: ~4–6 hours. Prioritize correctness + clarity over “production completeness”.
-
-### 3) How to run (required)
-Include clear instructions in the README:
-- Setup steps
-- Commands to run the pipeline
-- Where outputs are written
-- How to run tests (if provided)
-
-### 4) Tests + observability (strong bonus)
-- Data quality checks (uniqueness, not‑null, accepted values, freshness)
-- Unit tests for critical transforms
-- Simple metrics/alerts strategy (volume anomaly, duplicate rate, late event rate)
-
-## Dataset reference
-
-### `events.ndjson`
-Each line is an event object **or** an intentionally corrupted line.
-
-Common fields:
-- `event_id` (string) — supposed to be unique but is not always
-- `user_id` (string | null) — may be missing/null in some rows
-- `event_type` (string) — one of: `signup`, `login`, `page_view`, `purchase`, `refund`, `trial_start`, `trial_convert`, `cancel`
-- `timestamp` (string) — inconsistent formats on purpose
-- `schema_version` (int) — 1 or 2
-
-Purchase/refund fields:
-- `amount` (number) — may be negative in a tiny number of rows
-- `currency` (string) — only in schema v2 (but can be present elsewhere due to corruption)
-- `tax` (number) — optional in v2
-- `refers_to_event_id` (string) — present on refunds (links to purchase event_id)
-
-Signup fields:
-- `acquisition_channel` (string) — e.g., Google/Facebook/Organic/etc.
-
-### `subscriptions.json`
-A JSON array of subscription records.
-
-Fields:
-- `subscription_id` (string) — **not unique** in this dataset (intentional trap)
-- `user_id` (string)
-- `plan_id` (string) — `basic`, `pro`, `team`
-- `price` (number)
-- `currency` (string)
-- `start_date` (YYYY-MM-DD)
-- `end_date` (YYYY-MM-DD | null)
-- `status` (`active` | `canceled`)
-- `created_at` (timestamp)
-
-Edge cases:
-- Overlapping subscriptions for a user
-- Reactivations after churn
-- Duplicate subscription id with differing status
-
-### `marketing_spend.csv`
-Columns:
-- `date` (YYYY-MM-DD)
-- `channel` (string)
-- `spend` (number)
-
-Edge cases:
-- Missing dates for some channels
-- Duplicate rows
-- One negative spend row (intentional)
-
-## Submission
-- Provide your code (repo)
-- Include `README` instructions
-- Include outputs (or a way to generate them) and any notes on decisions
+**Tech Stack:** - **Language:** Python 3.10+
+- **Language:** DuckDB (OLAP-optimized, local storage)
+- **Testing:** Pytest
+- **Libraries:** Pandas (for initial ingestion & data cleaning)
 
 ---
 
-### Notes
-This dataset was generated with a fixed random seed for reproducibility. The exact counts will vary slightly depending on how you parse corrupted rows, but the **issues are intentional** and should be addressed.
+## 2. Project Structure
+
+```text
+data-engineer-take-home/
+├── data/               # CSV, JSON, NDJSON files
+├── src/
+│   ├── bronze.py
+│   ├── silver.py
+│   ├── gold.py
+│   └── process.py
+│   └── query.py        # SQL Utility to inspect results
+├── tests/
+│   ├── test_bronze.py
+│   ├── test_silver.py
+│   └── test_gold.py
+├── DESIGN.md           # Documentation of architectural decisions
+├── requirements.txt
+└── README.md
+└── audicin_lakehouse.db # Generated DuckDB database
+```
+
+### 3. Setup & Execution
+Prerequisites
+EIt is recommended to use a virtual environment. Install dependencies using:
+
+```bash
+pip install -r requirements.txt
+```
+
+- Decision Note: I designed the modules to be runnable individually for debugging (e.g., python src/gold.py), but process.py ensures the correct dependency order.
+
+
+### 4. Running the Pipeline
+This script will output the top rows of the Gold tables directly to your terminal:
+```bash
+python src/process.py
+```
+Note: This will generate audicin_lakehouse.db in your root directory.
+
+**Running Diagnostics**
+To verify the results and audit the quarantined records:
+
+```bash
+python src/query.py
+python src/querytable.py
+```
+
+**Running the Test Suite**
+The project includes a robust testing suite that uses in-memory databases to verify logic:
+
+```bash
+python -m pytest
+```
+
+### 4. Key Business Outputs (Gold Layer)
+TThe pipeline produces the following requirement-compliant tables, clustered by date for query performance:
+
+Table Name,Business Question Answered
+daily_active_users,DAU count (filtered for human-only activity).
+daily_revenue_gross,Total revenue before refunds.
+daily_revenue_net,Refund-adjusted daily revenue.
+mrr_monthly,Monthly Recurring Revenue from active subscriptions.
+weekly_cohort_retention,User stickiness based on signup week.
+cac_by_channel,Customer Acquisition Cost per marketing channel.
+ltv_per_user,Lifetime value per user (net of refunds).
+ltv_cac_ratio,Efficiency ratio of LTV vs. CAC.
+
+
+### 5. Decision Notes & Handling & Robustness
+- `Bot Detection: I implemented behavioral analysis in the Silver layer to flag users with activity bursts (>20 events/sec). These are flagged as is_bot and excluded from Gold analytics.
+
+- `The 'ten' Trap`: Handled via a Quarantine Strategy. Using TRY_CAST, non-numeric amount strings are diverted to quarantine_events for audit rather than crashing the pipeline.
+
+- `Duplicates & Out-of-Order Events`: Handled via QUALIFY ROW_NUMBER() in Silver. This implements a "Latest-Version-Wins" strategy based on event timestamps.
+
+- `Negative Marketing Spend`: Automatically identified and moved to quarantine_marketing.
+
+- `Timestamp Inconsistency`: Normalizes multiple ISO and string formats into a unified UTC TIMESTAMP type.
+
+
+Otherwise, use the provided src/query.py to run custom SQL queries.
+
+### 6. Architectural Reasoning
+For a deep dive into the decisions regarding partitioning, idempotency, and storage formats, Please see DESIGN.md.
+
+### 7. How to Query via SQL
+If you have the DuckDB CLI installed, you can query the database directly:
+
+```bash
+duckdb audicin_lakehouse.db "SELECT * FROM daily_revenue_net LIMIT 10;"
+```
+
+## 8. Future Improvements & Scalability
+While this implementation is robust for the provided dataset, the following enhancements would be prioritized for a production-scale deployment:
+
+* **Migration to Apache Spark:** As data volume grows beyond the limits of a single vertical node, migrating the processing engine to Spark would allow for horizontal scaling.
+    * **Large-Scale Joins:** Spark’s shuffle mechanics are superior for calculating LTV across billions of historical records.
+    * **Lakehouse Standards:** Native support for **Delta Lake** or **Apache Iceberg** would provide ACID transactions and "Time Travel" capabilities.
+    * **Streaming:** Spark Structured Streaming could process the NDJSON events in real-time micro-batches for live DAU tracking.
+* **Dbt Integration:** Transitioning SQL logic to dbt to leverage built-in lineage documentation and automated data quality testing (e.g., `not_null`, `unique`).
+* **Enhanced Data Quality (Circuit Breakers):** Integrating a framework like **Great Expectations** to stop the pipeline if specific thresholds are met (e.g., if the refund-to-purchase ratio exceeds a set anomaly percentage).
