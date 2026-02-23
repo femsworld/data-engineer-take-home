@@ -45,7 +45,16 @@ Normalization: I used a COALESCE of multiple strptime patterns to standardize in
 
 ### 4. Business Logic (Gold Layer)
 **Daily Active Users (DAU)**
-**Bot Filtering**: A critical "Senior" choice was implemented here. I identified users with non-human activity bursts (>20 events per second). These are flagged as is_bot in Silver and strictly excluded from Gold DAU and Revenue metrics to prevent inflated business KPIs.
+
+**Bot Filtering**: A critical choice was implemented here. I identified users with non-human activity bursts (>20 events per second). These are flagged as is_bot in Silver and strictly excluded from Gold DAU and Revenue metrics to prevent inflated business KPIs.
+
+**Bot Detection Logic**
+
+-`Threshold`: I implemented a heuristic to flag users with >20 events per second.
+
+-`Reasoning`: Based on human interaction limits, it is physically impossible for a user to trigger 20+ state changes (signups, purchases, etc.) in a single second. High-frequency bursts typically indicate load tests, scrapers, or malicious scripts.
+
+-`Impact`: These users are flagged in the Silver layer but kept in the database for security audit, while being strictly excluded from the Gold layer to ensure business stakeholders see real user growth and revenue.
 
 **Revenue & MRR**
 **Daily Revenue (Net/Gross):** Gross revenue tracks all purchases. Net revenue subtracts refunds by applying a negative multiplier to refund event types.
@@ -54,6 +63,23 @@ Normalization: I used a COALESCE of multiple strptime patterns to standardize in
 
 **Backfill Strategy**
 To rebuild historical data correctly, the pipeline is designed to be re-runnable. By clearing the audicin_lakehouse.db and running process.py, the system performs a full backfill from the raw files, reapplying the deduplication and bot-filtering logic to ensure historical accuracy.
+
+**Marketing Attribution & CAC**
+
+-`Grain`: Marketing spend is provided at a daily/channel grain. Since the event data lacks specific attribution tags (UTMs), the pipeline attributes signups to channels based on the **event_date**.
+
+-`Integrity`: I used a ***Subquery + NULLIF*** pattern to calculate CAC. This ensures that if a channel has spend but **zero signups** for a given day, the CAC is returned as NULL (undefined) rather than a mathematically incorrect zero or an inflated total spend.
+
+### 5. Testing Strategy
+I implemented a suite of Pytest units to validate the pipeline's resilience against the "traps" mentioned in the requirements:
+
+-`Type Safety`: Validated that the "ten" string is correctly quarantined.
+
+-`Format Flexibility`: Verified that multiple ISO timestamp formats are normalized to a single standard.
+
+-`Edge Cases`: Included tests for division-by-zero scenarios (channels with spend but no signups) to ensure pipeline stability.
+
+-`State Verification`: Ensured that bot filtering and refund logic correctly adjust the final KPI outputs.
 
 **How to Run**
 ````bash
